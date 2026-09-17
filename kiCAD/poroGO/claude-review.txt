@@ -1,0 +1,27 @@
+High-severity findings
+AS7341 LDR pin over absolute maximum. D2 (and J4) tie the LED anode to V+, which is USB 5 V minus the D1 drop, about 4.0 to 4.5 V. The datasheet limits the LDR pin to 3.6 V, so whenever the LED sink is off the pin sits at V+. Power the LED from V+3V (a red LED still leaves headroom) or add a series resistor.
+3.3 V rail cannot supply the ESP8685. U5 AP7312 is 150 mA per channel with internal current limit. Espressif specifies a cumulative input current of at least 0.5 A (Wi-Fi TX peaks around 350 mA). Diodes also marks the AP7312 as not recommended for new designs. Expect brownouts/resets if the radio is ever used.
+D1 (1N4148WT) is the main supply series diode. It is rated 150 mA average, yet all board current flows through it (ESP, both LDOs, boost input of roughly 100 mA at 20 V/20 mA output). It also drops 0.7 to 1 V, lowering V+ to about 4 V. Use a 1 A Schottky or a P-MOSFET, or remove it if it is not needed.
+Strapping pins float. GPIO8 (pad 14, net SDA) has no pull-up because R7 and R4 are DNP; the datasheet requires GPIO8 = 1 for USB/UART download boot and lists it as floating by default. GPIO2 (pad 6) goes nowhere and Espressif recommends a pull-up. Only GPIO9 has R12.
+I2C bus has no populated pull-ups. R4, R5, R7, R8 are all DNP, and SDA/SCL run about 187 mm to the AS7341 and BME280. The ESP internal pull-ups (about 45 kΩ) are marginal for that length. Populating R7/R8 also fixes the GPIO8 strapping issue.
+Medium-severity findings
+Crystal has no load capacitors. Y2 (ECS-400-6-47B2, CL = 6 pF) connects directly to XTAL_P/N. The ESP32-C3 hardware design guidelines require C1/C2 sized to meet CL, then tuned for ±10 ppm. At minimum add footprints.
+LNA_IN (pad 1) is unconnected, so there is no antenna or matching network. Fine if the part is used as an MCU only, otherwise Wi-Fi/BLE is impossible.
+Copper zone with no net on F.Cu+B.Cu near Q201 (x 144.7 to 149.3 mm, y 71.1 to 75.2 mm). It fills as floating copper next to the +20 V collector pad. Assign it a net or delete it.
+R3/R6 bridges are cross-wired. R3 joins SDA_2 to SCL and R6 joins SCL_2 to SDA. They are DNP, but if populated to merge the buses they would swap clock and data.
+C202 (1 nF, FB to GND) on the MT3608 adds a pole near 28 kHz in the feedback path (FB node impedance about 5.7 kΩ). This is not in the reference circuit and can cost phase margin. Verify on hardware or move it to a feed-forward position across R202.
+BOM/part mismatches. CL05A225MQ5NNNC is a 0402, 2.2 µF, 6.3 V part but C1 to C4 and C9 to C12 use 0603 footprints, and C13 says 10 µF with that same 2.2 µF MPN. D201 is a generic "D" with no part (needs a Schottky rated ≥30 V, ≥0.5 A). Q201 has no part number and its footprint (W-DFN3020-8) contradicts the symbol's SOT-363 filter, so the pad-to-function mapping cannot be verified. C201, C202, C204 to C208 have no voltage rating; those on +20 V (C203, C205, C207) need 25 V minimum, and the 25 V X5R C203 will lose most of its capacitance at 20 V DC bias.
+Inductor L201. SRN3015TA-100M has Isat 0.75 A and Irms 0.8 A; the MT3608 4 A switch limit will saturate it during startup into C203. Steady-state peak is about 0.25 A, so it works but is not comfortable. The L_1210 footprint has 2.5 mm pad pitch versus the Bourns recommended pattern of about 2.0 mm pitch with 1.0 mm pads.
+PWM DAC on U0TXD (GPIO21). UART TX idles high, which puts the boost at its 4 V minimum (pump off), a safe default. However, until the ROM drives TX high, the DAC node is at 0 V and FB asks for the full 20 V, and ROM boot messages get filtered into the DAC. UART0 TX is also lost for debugging.
+Low-severity findings
+D3 status LED through R13 5.1 kΩ from a 3.3 V GPIO gives about 0.25 mA, which will be very dim.
+U202 uses the LMH6609MF symbol and datasheet link with an LM7321 value. The pinout is identical and the LM7321 handles 20 V, but the LMH6609 is limited to 12 V, so a wrong order would fail.
+U1's footprint is flagged as through-hole although it is SMD; this breaks BOM and placement filters. The custom OLGA-8 pad geometry (0.8 mm pitch, 1.28 mm row spacing) could not be verified against the ams drawing.
+Stackup uses In1 as a V+ plane and In2 as a 3.3 V plane, with GND only as outer-layer zones. For a 181 by 25 mm strip carrying 187 mm I2C and 117 mm PWM traces, a solid GND on In1 would give cleaner return paths.
+V+3V has some 0.175 mm track segments; confirm these are only short QFN fanouts.
+The AS7341 GPIO pin is a digital input left floating; tie it to GND if unused.
+Txd/Rxd on J1 are single-endpoint labels, and J1, J5, R4, R5 are in the schematic but not on the board (DNP), while R4/R5 remain in the BOM.
+Verified correct
+AP7312 pin mapping (pin 1 = OUT2 = 3.3 V, pin 6 = OUT1 = 1.8 V, EN pins tied to VIN). IP4234CZ6 flow-through pairing (pins 1↔3 for D+, 4↔6 for D-, pin 5 to VBUS). MT3608 pinout and divider: 20 V at 0 % duty, about 4.2 V at 100 %. LM7321 pinout, 32 V rating and current drive for the push-pull stage. BME280 CSB high and SDO low (address 0x76). AS7341 at 1.8 V with SDA/SCL 3.6 V tolerant, so the shared 3.3 V bus is fine. USB-C CC1/CC2 5.1 kΩ pull-downs, shield to GND, 16-pin receptacle pads match the symbol. CHIP_EN RC (5.1 kΩ/2.2 µF) and GPIO9 pull-up.
+
+Sources: AP7312 datasheet, AP7312 ordering info via Farnell, IP4234CZ6 datasheet, ESP8685 datasheet, ESP32-C3 hardware design guidelines, AS7341 datasheet, LM7321 datasheet, SRN3015TA datasheet, ECS-400-6-47B2-CKM-TR, MT3608 datasheet.
