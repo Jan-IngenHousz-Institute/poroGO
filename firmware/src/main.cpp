@@ -2,8 +2,9 @@
 #include <Wire.h>
 #include <ArduinoJson.h>
 #include "app/commands.h"
-#include "app/bme68x_api.h"
+#include "app/bme280_api.h"
 #include "app/spectrometer_api.h"
+#include "app/pump_api.h"
 
 bool bme_available = false;
 
@@ -118,6 +119,10 @@ static bool HandleJson(const char *json, size_t len) {
 // ── setup / loop ───────────────────────────────────────────────────────
 
 void setup() {
+  // First thing: hold GPIO21 high so the boost sits at its minimum (pump off)
+  // before the USB enumeration delay and sensor init below.
+  initPump();
+
 #if ARDUINO_USB_CDC_ON_BOOT
   // usb env: native USB-CDC on the C3's USB peripheral (GPIO18/19 driven by
   // the USB block, not the UART). Default Serial.begin is correct.
@@ -131,14 +136,17 @@ void setup() {
   Serial.begin(115200, SERIAL_8N1, /*rx=*/18, /*tx=*/19);
 #endif
   // Serial.println(F("{\"boot\":\"starting\"}"));
-  Wire.begin(3, 4);
+  // I2C per poroGO schematic/PCB: SDA = GPIO8 (R7 pull-up), SCL = GPIO4 (R8
+  // pull-up). 0R jumpers R6/R3 also tie GPIO1 to SDA and GPIO0 to SCL, so leave
+  // GPIO0/GPIO1 as inputs. (CO2Dot used GPIO3/GPIO4; GPIO3 is unused here.)
+  Wire.begin(/*sda=*/8, /*scl=*/4);
 
   bme_available = initBME();
   #if DEBUG
   if (!bme_available)
-    Serial.println(F("[init] BME68x not found"));
+    Serial.println(F("[init] BME280 not found"));
   else
-    Serial.println(F("[init] BME68x OK"));
+    Serial.println(F("[init] BME280 OK"));
   #endif
 
   initSpectrometer();

@@ -2,9 +2,10 @@
 #include <Wire.h>
 #include "app/commands.h"
 #include "app/response.h"
-#include "app/bme68x_api.h"
+#include "app/bme280_api.h"
 #include "app/debug_api.h"
 #include "app/spectrometer_api.h"
+#include "app/pump_api.h"
 
 bool jsonOutputMode = false;
 
@@ -15,7 +16,7 @@ bool jsonOutputMode = false;
 // branches below.
 static void fill_help(JsonObject h) {
   h["hello"]           = "device identity -> {device,version}";
-  h["env"]             = "read BME68x environment (T,P,H,gas)";
+  h["env"]             = "read BME280 environment (T,P,RH)";
   h["i2c_scan"]        = "scan the I2C bus for device addresses";
   h["spec"]            = "read calibrated spectrometer channels";
   h["spec_raw"]        = "read raw spectrometer channel counts";
@@ -25,8 +26,9 @@ static void fill_help(JsonObject h) {
   h["spec_set_atime"]  = "spec_set_atime,<n> - set integration ATIME";
   h["spec_set_astep"]  = "spec_set_astep,<n> - set integration ASTEP";
   h["spec_set_gain"]   = "spec_set_gain,<n> - set analog gain (AGAIN)";
+  h["pump"]            = "pump <0-100> - set piezo pump PWM duty (%); bare pump reports state";
   h["spec_status"]     = "spectrometer configuration & status";
-  h["bme_status"]      = "BME68x configuration & status";
+  h["bme_status"]      = "BME280 configuration & status";
   h["status"]          = "combined spectrometer + bme status";
   h["reboot"]          = "restart the device";
   h["help"]            = "list commands; help.<cmd> for one, help.keys() for names";
@@ -125,6 +127,20 @@ void handleCommandText(const String &cmd) {
     const char *arg = (comma > 0) ? cmd.c_str() + comma + 1 : "";
     cmd_spectrometer_set_gain(comma > 0 ? 1 : 0, &arg);
 
+  } else if (name == "pump" || cmd.startsWith("pump ") || cmd.startsWith("pump,")) {
+    // Argument follows a space ("pump 40") or a comma ("pump,40"). A decimal
+    // argument ("pump 12.5") contains a '.', which the dot-path split above
+    // would misread as a query, so re-derive the argument from the full
+    // command and drop the bogus path.
+    int sep = cmd.indexOf(' ');
+    if (sep < 0) sep = cmd.indexOf(',');
+    if (sep > 0) {
+      g_requestPath = String();
+      cmd_pump(cmd.substring(sep + 1));
+    } else {
+      cmd_pump(String());
+    }
+
   } else if (name == "spec_status") {
     cmd_spectrometer_status();
 
@@ -132,11 +148,12 @@ void handleCommandText(const String &cmd) {
     cmd_bme_status();
 
   } else if (name == "status") {
-    // Combined command-as-root {"spectrometer":{...},"bme":{...}} — one message
+    // Combined command-as-root {"spectrometer":{...},"bme":{...},"pump":{...}} — one message
     // per "status" request. Query e.g. with status.bme.T
     JsonDocument doc;
     fill_spectrometer_status(doc["spectrometer"].to<JsonObject>());
     fill_bme_status(doc["bme"].to<JsonObject>());
+    fill_pump_status(doc["pump"].to<JsonObject>());
     respond(doc);
 
   } else if (name == "reboot") {
